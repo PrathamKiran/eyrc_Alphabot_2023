@@ -18,8 +18,8 @@
 *****************************************************************************************
 '''
 
-# Team ID:          [ Team-ID ]
-# Author List:		[ Names of team members worked on this file separated by Comma: Name1, Name2, ... ]
+# Team ID:          CL#1530
+# Author List:		Pratham, Adithya, Swastik, Rayner
 # Filename:		    task1a.py
 # Functions:
 #			        [ Comma separated list of functions in this file ]
@@ -74,7 +74,8 @@ def calculate_rectangle_area(coordinates):
     #       and formulate width and height of aruco detected to return 'area' and 'width'.
 
     ############################################
-
+    area = cv2.contourArea(coordinates)
+    width = math.sqrt(area)                                     # Since aruco is basically a square
     return area, width
 
 
@@ -120,6 +121,8 @@ def detect_aruco(image):
     angle_aruco_list = []
     width_aruco_list = []
     ids = []
+    corners = []
+    rejected = []
  
     ############ ADD YOUR CODE HERE ############
 
@@ -146,7 +149,49 @@ def detect_aruco(image):
     #       ->  HINT: You may use 'cv2.drawFrameAxes'
 
     ############################################
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    #cv2.imshow("Gray Image",gray_image)
+    #cv2.waitKey(0)
+    arucoDict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
+    arucoParams = cv2.aruco.DetectorParameters_create()
+    corners, ids, rejected = cv2.aruco.detectMarkers(gray_image, arucoDict, parameters=arucoParams)
+    # print(corners)
+    # print(ids)
+    if ids is not None:
+        for i in range(len(ids)):
+            # Calculate the marker center
+            c = corners[i][0]
+            area, width = calculate_rectangle_area(c)
+            if(area < aruco_area_threshold):                        # Removing the markers that do not meet the threshold requirement
+                continue
+            marker_center = np.mean(c, axis=0)
+            center_aruco_list.append(marker_center)
 
+            #Pose estimation
+            rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corners[i], size_of_aruco_m, cam_mat, dist_mat)
+            print(rvec)
+
+            cv2.drawFrameAxes(image, cam_mat, dist_mat, rvec, tvec, size_of_aruco_m)
+  
+            # Draw the marker and its center on the image (optional)
+            cv2.aruco.drawDetectedMarkers(image, corners)
+            cv2.circle(image, (int(marker_center[0]), int(marker_center[1])), 5, (0, 0, 255), -1)
+ 
+            x,y,z = tvec[0][0]
+            distance = math.sqrt(x*x+y*y+z*z)
+            distance_from_rgb_list.append(distance)
+            angle_aruco_list.append(rvec)
+            width_aruco_list.append(width)
+        # print(center_aruco_list)
+        # print(distance_from_rgb_list)
+        # print(ids)
+        # print(angle_aruco_list)
+        # print(width_aruco_list)
+
+    # Display the image with markers and centers
+    cv2.imshow('Image with ArUco Markers', image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
     return center_aruco_list, distance_from_rgb_list, angle_aruco_list, width_aruco_list, ids
 
 
@@ -170,12 +215,15 @@ class aruco_tf(Node):
         super().__init__('aruco_tf_publisher')                                          # registering node
 
         ############ Topic SUBSCRIPTIONS ############
+        self.cv_image = None                                                            # colour raw image variable (from colorimagecb())
+        self.depth_image = None
 
         self.color_cam_sub = self.create_subscription(Image, '/camera/color/image_raw', self.colorimagecb, 10)
         self.depth_cam_sub = self.create_subscription(Image, '/camera/aligned_depth_to_color/image_raw', self.depthimagecb, 10)
 
         ############ Constructor VARIABLES/OBJECTS ############
 
+        self.test = 10
         image_processing_rate = 0.2                                                     # rate of time to process image (seconds)
         self.bridge = CvBridge()                                                        # initialise CvBridge object for image conversion
         self.tf_buffer = tf2_ros.buffer.Buffer()                                        # buffer time used for listening transforms
@@ -183,9 +231,7 @@ class aruco_tf(Node):
         self.br = tf2_ros.TransformBroadcaster(self)                                    # object as transform broadcaster to send transform wrt some frame_id
         self.timer = self.create_timer(image_processing_rate, self.process_image)       # creating a timer based function which gets called on every 0.2 seconds (as defined by 'image_processing_rate' variable)
         
-        self.cv_image = None                                                            # colour raw image variable (from colorimagecb())
-        self.depth_image = None                                                         # depth image variable (from depthimagecb())
-
+                                                         # depth image variable (from depthimagecb())
 
     def depthimagecb(self, data):
         '''
@@ -207,7 +253,11 @@ class aruco_tf(Node):
         #   ->  HINT: You may use CvBridge to do the same
 
         ############################################
-
+        try:
+            self.depth_image = self.bridge.imgmsg_to_cv2(data)
+            #cv2.imshow("Depth Image", self.depth_image)
+        except CvBridgeError as e:
+            print(e)
 
     def colorimagecb(self, data):
         '''
@@ -231,7 +281,13 @@ class aruco_tf(Node):
         #               You may use cv2 functions such as 'flip' and 'rotate' to do the same
 
         ############################################
-
+        try:
+            self.cv_image = self.bridge.imgmsg_to_cv2(data)
+            detect_aruco(self.cv_image)
+            #cv2.imshow("Color Image", self.cv_image)
+            #cv2.waitKey(0)
+        except CvBridgeError as e:
+            print(e)
 
     def process_image(self):
         '''
@@ -304,7 +360,6 @@ class aruco_tf(Node):
         #               Also, auto eval script will be judging angular difference aswell. So, make sure that Z axis is inside the box (Refer sample images on Portal - MD book)
 
         ############################################
-
 
 ##################### FUNCTION DEFINITION #######################
 
