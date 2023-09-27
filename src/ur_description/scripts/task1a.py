@@ -192,7 +192,7 @@ def detect_aruco(image):
     cv2.imshow('Image with ArUco Markers', image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    return center_aruco_list, distance_from_rgb_list, angle_aruco_list, width_aruco_list, ids
+    return center_aruco_list, distance_from_rgb_list, angle_aruco_list, width_aruco_list, ids , corners
 
 
 ##################### CLASS DEFINITION #######################
@@ -360,6 +360,34 @@ class aruco_tf(Node):
         #               Also, auto eval script will be judging angular difference aswell. So, make sure that Z axis is inside the box (Refer sample images on Portal - MD book)
 
         ############################################
+        center_aruco_list, distance_from_rgb_list, angle_aruco_list, width_aruco_list, ids,corners= detect_aruco(self.cv_image)
+        cam_mat = np.array([[931.1829833984375, 0.0, 640.0], [0.0, 931.1829833984375, 360.0], [0.0, 0.0, 1.0]])
+        dist_mat = np.array([0.0,0.0,0.0,0.0,0.0])
+        size_of_aruco_m = 0.15
+        if ids is not None:
+            for i in range(len(ids)):
+                rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corners[i], size_of_aruco_m, cam_mat, dist_mat)
+                #angle_aruco = (0.788*angle_aruco_list[i]) - ((angle_aruco_list[i]**2)/3160)
+                roll = 0.0
+                pitch = 0.0
+                yaw = angle_aruco
+                #quaternions=tf2_ros.transformations.quaternion_from_euler(roll,pitch,yaw)
+                # Step 5: Get RealSense Dept
+                d=distance_from_rgb_list[i]
+                cX,cY=center_aruco_list[i]
+                x = d* (sizeCamX - cX - centerCamX) / focalX
+                y = d * (sizeCamY - cY - centerCamY) / focalY
+                z = d
+                #   ->  Now, mark the center points on image frame using cX and cY variables with help of 'cv2.cirle' function         
+                transform=TransformStamped()
+                transform.header.frame_id='camera_link'
+                transform.child_frame_id=f'cam_{ids[i]}'
+                transform_broadcater1=tf2_ros.transform_broadcaster()
+
+        
+        
+        
+
 
 ##################### FUNCTION DEFINITION #######################
 
