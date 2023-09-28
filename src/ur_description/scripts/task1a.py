@@ -35,7 +35,8 @@ import rclpy
 import sys
 import cv2
 import math
-import tf2_ros
+#import tf2_ros
+from tf2_ros import TransformBroadcaster
 import numpy as np
 from rclpy.node import Node
 from cv_bridge import CvBridge, CvBridgeError
@@ -58,22 +59,11 @@ def calculate_rectangle_area(coordinates):
         width       (float):    width of detected aruco
     '''
 
-    ############ Function VARIABLES ############
-
-    # You can remove these variables after reading the instructions. These are just for sample.
+    ############ Function VARIABLES ###########.
 
     area = None
     width = None
 
-    ############ ADD YOUR CODE HERE ############
-
-    # INSTRUCTIONS & HELP : 
-    #	->  Recevice coordiantes from 'detectMarkers' using cv2.aruco library 
-    #       and use these coordinates to calculate area and width of aruco detected.
-    #	->  Extract values from input set of 4 (x,y) coordinates 
-    #       and formulate width and height of aruco detected to return 'area' and 'width'.
-
-    ############################################
     area = cv2.contourArea(coordinates)
     width = math.sqrt(area)                                     # Since aruco is basically a square
     return area, width
@@ -155,44 +145,26 @@ def detect_aruco(image):
     arucoDict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
     arucoParams = cv2.aruco.DetectorParameters_create()
     corners, ids, rejected = cv2.aruco.detectMarkers(gray_image, arucoDict, parameters=arucoParams)
-    # print(corners)
-    # print(ids)
+
     if ids is not None:
         for i in range(len(ids)):
             # Calculate the marker center
             c = corners[i][0]
             area, width = calculate_rectangle_area(c)
             if(area < aruco_area_threshold):                        # Removing the markers that do not meet the threshold requirement
+                ids = np.delete(ids,i)
                 continue
             marker_center = np.mean(c, axis=0)
             center_aruco_list.append(marker_center)
 
             #Pose estimation
             rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corners[i], size_of_aruco_m, cam_mat, dist_mat)
-            print(rvec)
 
-            cv2.drawFrameAxes(image, cam_mat, dist_mat, rvec, tvec, size_of_aruco_m)
-  
-            # Draw the marker and its center on the image (optional)
-            cv2.aruco.drawDetectedMarkers(image, corners)
-            cv2.circle(image, (int(marker_center[0]), int(marker_center[1])), 5, (0, 0, 255), -1)
- 
-            x,y,z = tvec[0][0]
-            distance = math.sqrt(x*x+y*y+z*z)
-            distance_from_rgb_list.append(distance)
+            distance_from_rgb_list.append(tvec)
             angle_aruco_list.append(rvec)
             width_aruco_list.append(width)
-        # print(center_aruco_list)
-        # print(distance_from_rgb_list)
-        # print(ids)
-        # print(angle_aruco_list)
-        # print(width_aruco_list)
-
-    # Display the image with markers and centers
-    cv2.imshow('Image with ArUco Markers', image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    return center_aruco_list, distance_from_rgb_list, angle_aruco_list, width_aruco_list, ids , corners
+  
+    return((center_aruco_list, distance_from_rgb_list, angle_aruco_list, width_aruco_list, ids , corners))
 
 
 ##################### CLASS DEFINITION #######################
@@ -216,7 +188,7 @@ class aruco_tf(Node):
 
         ############ Topic SUBSCRIPTIONS ############
         self.cv_image = None                                                            # colour raw image variable (from colorimagecb())
-        self.depth_image = None
+        self.depth_image = None                                                         # depth image variable (from depthimagecb())
 
         self.color_cam_sub = self.create_subscription(Image, '/camera/color/image_raw', self.colorimagecb, 10)
         self.depth_cam_sub = self.create_subscription(Image, '/camera/aligned_depth_to_color/image_raw', self.depthimagecb, 10)
@@ -230,8 +202,7 @@ class aruco_tf(Node):
         self.listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.br = tf2_ros.TransformBroadcaster(self)                                    # object as transform broadcaster to send transform wrt some frame_id
         self.timer = self.create_timer(image_processing_rate, self.process_image)       # creating a timer based function which gets called on every 0.2 seconds (as defined by 'image_processing_rate' variable)
-        
-                                                         # depth image variable (from depthimagecb())
+         
 
     def depthimagecb(self, data):
         '''
@@ -244,15 +215,6 @@ class aruco_tf(Node):
         Returns:
         '''
 
-        ############ ADD YOUR CODE HERE ############
-
-        # INSTRUCTIONS & HELP : 
-
-        #	->  Use data variable to convert ROS Image message to CV2 Image type
-
-        #   ->  HINT: You may use CvBridge to do the same
-
-        ############################################
         try:
             self.depth_image = self.bridge.imgmsg_to_cv2(data)
             #cv2.imshow("Depth Image", self.depth_image)
@@ -270,20 +232,10 @@ class aruco_tf(Node):
         Returns:
         '''
 
-        ############ ADD YOUR CODE HERE ############
-
-        # INSTRUCTIONS & HELP : 
-
-        #	->  Use data variable to convert ROS Image message to CV2 Image type
-
-        #   ->  HINT:   You may use CvBridge to do the same
-        #               Check if you need any rotation or flipping image as input data maybe different than what you expect to be.
-        #               You may use cv2 functions such as 'flip' and 'rotate' to do the same
-
-        ############################################
         try:
             self.cv_image = self.bridge.imgmsg_to_cv2(data)
-            detect_aruco(self.cv_image)
+            self.center_aruco_list, self.distance_from_rgb_list, self.angle_aruco_list, self.width_aruco_list, self.ids , self.corners = detect_aruco(self.cv_image)
+            self.process_image()
             #cv2.imshow("Color Image", self.cv_image)
             #cv2.waitKey(0)
         except CvBridgeError as e:
@@ -309,7 +261,8 @@ class aruco_tf(Node):
         centerCamY = 360
         focalX = 931.1829833984375
         focalY = 931.1829833984375
-            
+        cam_mat = np.array([[931.1829833984375, 0.0, 640.0], [0.0, 931.1829833984375, 360.0], [0.0, 0.0, 1.0]])
+        dist_mat = np.array([0.0,0.0,0.0,0.0,0.0])  
 
         ############ ADD YOUR CODE HERE ############
 
@@ -360,33 +313,53 @@ class aruco_tf(Node):
         #               Also, auto eval script will be judging angular difference aswell. So, make sure that Z axis is inside the box (Refer sample images on Portal - MD book)
 
         ############################################
-        center_aruco_list, distance_from_rgb_list, angle_aruco_list, width_aruco_list, ids,corners= detect_aruco(self.cv_image)
-        cam_mat = np.array([[931.1829833984375, 0.0, 640.0], [0.0, 931.1829833984375, 360.0], [0.0, 0.0, 1.0]])
-        dist_mat = np.array([0.0,0.0,0.0,0.0,0.0])
-        size_of_aruco_m = 0.15
-        if ids is not None:
-            for i in range(len(ids)):
-                rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corners[i], size_of_aruco_m, cam_mat, dist_mat)
-                #angle_aruco = (0.788*angle_aruco_list[i]) - ((angle_aruco_list[i]**2)/3160)
-                roll = 0.0
-                pitch = 0.0
-                yaw = angle_aruco
-                #quaternions=tf2_ros.transformations.quaternion_from_euler(roll,pitch,yaw)
+        # if self.ids is not None:
+        if True:
+            self.tf_broadcaster = tf2_ros(self)
+
+            for i in range(len(self.ids)):
+                self.angle_aruco_list[i] = (0.788*self.angle_aruco_list[i]) - ((self.angle_aruco_list[i]**2)/3160)
+                # quaternions=tf2_ros.transforms
                 # Step 5: Get RealSense Dept
-                d=distance_from_rgb_list[i]
-                cX,cY=center_aruco_list[i]
-                x = d* (sizeCamX - cX - centerCamX) / focalX
+                print(self.angle_aruco_list)
+                print(self.distance_from_rgb_list)
+                print(self.angle_aruco_list[0][0][0][0])
+                print(self.distance_from_rgb_list[0][0][0][0])
+                d= math.sqrt((self.distance_from_rgb_list[i][0][0][0])**2 + (self.distance_from_rgb_list[i][0][0][1]) + (self.distance_from_rgb_list[i][0][0][2]))
+                cX,cY= (self.center_aruco_list[i])
+                x = d * (sizeCamX - cX - centerCamX) / focalX
                 y = d * (sizeCamY - cY - centerCamY) / focalY
                 z = d
                 #   ->  Now, mark the center points on image frame using cX and cY variables with help of 'cv2.cirle' function         
                 transform=TransformStamped()
+                transform.header.stamp = self.get_clock().now().to_msg()
                 transform.header.frame_id='camera_link'
-                transform.child_frame_id=f'cam_{ids[i]}'
-                transform_broadcater1=tf2_ros.transform_broadcaster()
+                transform.child_frame_id=f'cam_{self.ids[i]}'
 
-        
-        
-        
+                # writing the transforms
+                transform.transform.translation.x = x
+                transform.transform.translation.y = y
+                transform.transform.translation.z = z
+
+                transform.transform.rotation.x = self.angle_aruco_list[i][0][0][0]
+                transform.transform.rotation.y = self.angle_aruco_list[i][0][0][1]
+                transform.transform.rotation.z = self.angle_aruco_list[i][0][0][2]
+                transform.transform.rotation.w = 1.0
+                self.tf_broadcaster.sendTransform(transform)
+
+        if self.ids is not None:
+            for i in range(len(self.ids)):
+  
+                cv2.drawFrameAxes(self.cv_image, cam_mat, dist_mat, self.angle_aruco_list[i], self.distance_from_rgb_list[i], 0.15)
+                cv2.aruco.drawDetectedMarkers(self.cv_image, self.corners)
+                cv2.circle(self.cv_image, (int(self.center_aruco_list[i][0]), int(self.center_aruco_list[i][1])), 5, (0, 0, 255), -1)
+    
+
+        # Display the image with markers and centers
+        cv2.imshow('Image with ArUco Markers', self.cv_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+ 
 
 
 ##################### FUNCTION DEFINITION #######################
