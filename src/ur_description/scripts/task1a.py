@@ -35,8 +35,7 @@ import rclpy
 import sys
 import cv2
 import math
-#import tf2_ros
-from tf2_ros import TransformBroadcaster
+import tf2_ros
 import numpy as np
 from rclpy.node import Node
 from cv_bridge import CvBridge, CvBridgeError
@@ -315,16 +314,16 @@ class aruco_tf(Node):
         ############################################
         # if self.ids is not None:
         if True:
-            self.tf_broadcaster = tf2_ros(self)
+            self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
 
             for i in range(len(self.ids)):
                 self.angle_aruco_list[i] = (0.788*self.angle_aruco_list[i]) - ((self.angle_aruco_list[i]**2)/3160)
                 # quaternions=tf2_ros.transforms
                 # Step 5: Get RealSense Dept
-                print(self.angle_aruco_list)
-                print(self.distance_from_rgb_list)
-                print(self.angle_aruco_list[0][0][0][0])
-                print(self.distance_from_rgb_list[0][0][0][0])
+                # print(self.angle_aruco_list)
+                # print(self.distance_from_rgb_list)
+                # print(self.angle_aruco_list[0][0][0][0])
+                # print(self.distance_from_rgb_list[0][0][0][0])
                 d= math.sqrt((self.distance_from_rgb_list[i][0][0][0])**2 + (self.distance_from_rgb_list[i][0][0][1]) + (self.distance_from_rgb_list[i][0][0][2]))
                 cX,cY= (self.center_aruco_list[i])
                 x = d * (sizeCamX - cX - centerCamX) / focalX
