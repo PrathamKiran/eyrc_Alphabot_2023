@@ -35,7 +35,7 @@ import rclpy
 import sys
 import cv2
 import math
-import tf2_ros
+import tf2_ros 
 import numpy as np
 from rclpy.node import Node
 from cv_bridge import CvBridge, CvBridgeError
@@ -43,6 +43,7 @@ from geometry_msgs.msg import TransformStamped
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs.msg import CompressedImage, Image
 
+global ids
 
 ##################### FUNCTION DEFINITIONS #######################
 
@@ -144,7 +145,7 @@ def detect_aruco(image):
     arucoDict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
     arucoParams = cv2.aruco.DetectorParameters_create()
     corners, ids, rejected = cv2.aruco.detectMarkers(gray_image, arucoDict, parameters=arucoParams)
-
+    print("Processed the image and found ids:",ids)
     if ids is not None:
         for i in range(len(ids)):
             # Calculate the marker center
@@ -162,7 +163,7 @@ def detect_aruco(image):
             distance_from_rgb_list.append(tvec)
             angle_aruco_list.append(rvec)
             width_aruco_list.append(width)
-  
+
     return((center_aruco_list, distance_from_rgb_list, angle_aruco_list, width_aruco_list, ids , corners))
 
 
@@ -234,6 +235,7 @@ class aruco_tf(Node):
         try:
             self.cv_image = self.bridge.imgmsg_to_cv2(data)
             self.center_aruco_list, self.distance_from_rgb_list, self.angle_aruco_list, self.width_aruco_list, self.ids , self.corners = detect_aruco(self.cv_image)
+            print(self.ids)
             self.process_image()
             #cv2.imshow("Color Image", self.cv_image)
             #cv2.waitKey(0)
@@ -313,10 +315,16 @@ class aruco_tf(Node):
 
         ############################################
         # if self.ids is not None:
-        if True:
-            self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
-
-            for i in range(len(self.ids)):
+        ids = self.ids
+        if ids is not None:
+            for i in range(len(ids)):
+  
+                cv2.drawFrameAxes(self.cv_image, cam_mat, dist_mat, self.angle_aruco_list[i], self.distance_from_rgb_list[i], 0.15)
+                cv2.aruco.drawDetectedMarkers(self.cv_image, self.corners)
+                cv2.circle(self.cv_image, (int(self.center_aruco_list[i][0]), int(self.center_aruco_list[i][1])), 5, (0, 0, 255), -1)
+    
+        if ids is not None:
+            for i in range(len(ids)):
                 self.angle_aruco_list[i] = (0.788*self.angle_aruco_list[i]) - ((self.angle_aruco_list[i]**2)/3160)
                 # quaternions=tf2_ros.transforms
                 # Step 5: Get RealSense Dept
@@ -325,39 +333,51 @@ class aruco_tf(Node):
                 # print(self.angle_aruco_list[0][0][0][0])
                 # print(self.distance_from_rgb_list[0][0][0][0])
                 d= math.sqrt((self.distance_from_rgb_list[i][0][0][0])**2 + (self.distance_from_rgb_list[i][0][0][1]) + (self.distance_from_rgb_list[i][0][0][2]))
+                
                 cX,cY= (self.center_aruco_list[i])
                 x = d * (sizeCamX - cX - centerCamX) / focalX
                 y = d * (sizeCamY - cY - centerCamY) / focalY
                 z = d
+                print(x,y,z)
                 #   ->  Now, mark the center points on image frame using cX and cY variables with help of 'cv2.cirle' function         
                 transform=TransformStamped()
                 transform.header.stamp = self.get_clock().now().to_msg()
                 transform.header.frame_id='camera_link'
-                transform.child_frame_id=f'cam_{self.ids[i]}'
-
+                transform.child_frame_id=f'cam_{ids[i]}'
                 # writing the transforms
                 transform.transform.translation.x = x
                 transform.transform.translation.y = y
                 transform.transform.translation.z = z
-
-                transform.transform.rotation.x = self.angle_aruco_list[i][0][0][0]
-                transform.transform.rotation.y = self.angle_aruco_list[i][0][0][1]
-                transform.transform.rotation.z = self.angle_aruco_list[i][0][0][2]
-                transform.transform.rotation.w = 1.0
-                self.tf_broadcaster.sendTransform(transform)
-
-        if self.ids is not None:
-            for i in range(len(self.ids)):
-  
-                cv2.drawFrameAxes(self.cv_image, cam_mat, dist_mat, self.angle_aruco_list[i], self.distance_from_rgb_list[i], 0.15)
-                cv2.aruco.drawDetectedMarkers(self.cv_image, self.corners)
-                cv2.circle(self.cv_image, (int(self.center_aruco_list[i][0]), int(self.center_aruco_list[i][1])), 5, (0, 0, 255), -1)
+                r = R.from_rotvec(np.pi/2 * self.angle_aruco_list[i][0][0])
+                r = r.as_quat()
+                transform.transform.rotation.x = r[0]
+                transform.transform.rotation.y = r[1]
+                transform.transform.rotation.z = r[2]
+                transform.transform.rotation.w = r[3]
+                self.br.sendTransform(transform)
     
+                # Looking up the relative transform
+                rel = self.tf_buffer.lookup_transform(f'cam_{ids[i]}','base_link',rclpy.time.Time())
+                # rel = self.tf_buffer.lookup_transform('shoulder_link','base_link',rclpy.time.Time())
+                # Transform between base and obj
+                newTransform = TransformStamped()
+                newTransform.header.stamp = self.get_clock().now().to_msg()
+                newTransform.header.frame_id='base_link'
+                newTransform.child_frame_id=f'obj_{ids[i]}'
+                newTransform.transform.translation.x = rel.transform.translation.x
+                newTransform.transform.translation.y = rel.transform.translation.y
+                newTransform.transform.translation.z = rel.transform.translation.z
+                newTransform.transform.rotation.x = rel.transform.rotation.x
+                newTransform.transform.rotation.y = rel.transform.rotation.y
+                newTransform.transform.rotation.z = rel.transform.rotation.z
+                newTransform.transform.rotation.w = rel.transform.rotation.w
+                self.br.sendTransform(newTransform)
+        
 
         # Display the image with markers and centers
-        cv2.imshow('Image with ArUco Markers', self.cv_image)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        # cv2.imshow('Image with ArUco Markers', self.cv_image)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
  
 
 
