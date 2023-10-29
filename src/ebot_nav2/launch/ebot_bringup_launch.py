@@ -84,8 +84,8 @@ def generate_launch_description():
 
     declare_map_yaml_cmd = DeclareLaunchArgument(
         'map',
-        default_value=os.path.join(ebot_nav2_dir, 'maps', 'map_name.yaml'),
-        description='Full path to map yaml file to load')
+        default_value=os.path.join(ebot_nav2_dir, 'maps', 'map.yaml'),
+        description='/home/adithya/eyrc_Alphabot/src/ebot_nav2/maps/map.yaml')
 
     declare_use_sim_time_cmd = DeclareLaunchArgument(
         'use_sim_time',
@@ -129,6 +129,11 @@ def generate_launch_description():
         'rviz_config',
         default_value=os.path.join(ebot_nav2_dir, 'rviz', 'nav2_default_view.rviz'),
         description='Full path to the RVIZ config file to use')
+    declare_map_yaml_cmd = DeclareLaunchArgument(
+        'map',
+        default_value=os.path.join(ebot_nav2_dir, 'maps', 'map.yaml'),  
+        description='home/eyrc_Alphabot/src/ebot_nav2/maps/map.yaml')
+    
 
 
     # Launch rviz
@@ -209,5 +214,12 @@ def generate_launch_description():
     ld.add_action(declare_log_level_cmd)
     ld.add_action(declare_rviz_config_file_cmd)
     ld.add_action(start_rviz_cmd)
+    #ld.add_action(declare_mapper_online_async_param_cmd)
+    #ld.add_action(mapper_online_async_param_launch)
+    ld.add_action(robot_localization_node)
+    ld.add_action(bringup_cmd_group)
+
+
+
 
     return ld
